@@ -32,6 +32,10 @@ func registerDestroy(seq int, name string, unit Handler) {
 	})
 }
 
+func SetupActive(fn func()) {
+	activeFunc = fn
+}
+
 func RegisterHandler(seq int, name string, handler func(ctx *context.Context) Handler) {
 	creates = append(creates, Unit{
 		Seq:    seq,
@@ -44,4 +48,8 @@ func sortCreates() {
 	sort.Slice(creates, func(i, j int) bool {
 		return creates[i].Seq < creates[j].Seq
 	})
+}
+
+func init() {
+	activeFunc()
 }
