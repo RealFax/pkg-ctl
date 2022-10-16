@@ -1,6 +1,9 @@
 # Package controller
  - a simple golang task controller
 
+```
+go get github.com/RealFax/pkg-ctl
+```
 ## how to use  
 
  _using pkg-ctl is very simple_
