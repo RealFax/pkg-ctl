@@ -3,7 +3,6 @@ package pkgCtl
 import (
 	"context"
 	"errors"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,14 +12,14 @@ func Destroy(cancel context.CancelFunc) (err error) {
 	cancel()
 	for i := 0; i < len(destroys); i++ {
 		if err = destroys[i].Unit.Destroy(); err != nil {
-			log.Printf(
+			Log.Printf(
 				"unit %s destroy fail, error: %s",
 				destroys[i].Name,
 				err.Error(),
 			)
 		}
 	}
-	log.Println("all unit are unmount")
+	Log.Println("all unit are unmount")
 	return
 }
 
@@ -41,21 +40,21 @@ func Startup(ctx *context.Context) error {
 		unit := creates[i]
 		uHandler := unit.Handle(ctx)
 		if err = uHandler.Create(); err != nil {
-			log.Printf("unit %s create fail, error: %s", unit.Name, err.Error())
+			Log.Printf("unit %s create fail, error: %s", unit.Name, err.Error())
 			return err
 		}
 		registerDestroy(unit.Seq, unit.Name, uHandler)
 		if !uHandler.IsAsync() {
 			if err = uHandler.Start(); err != nil {
-				log.Printf("unit %s start fail, error: %s", unit.Name, err.Error())
+				Log.Printf("unit %s start fail, error: %s", unit.Name, err.Error())
 				return err
 			}
-			log.Printf("unit %s startup", unit.Name)
+			Log.Printf("unit %s startup", unit.Name)
 		} else {
 			go func() {
-				log.Printf("[Ctl(Startup<ASYNC>)] unit %s startup", unit.Name)
+				Log.Printf("[Ctl(Startup<ASYNC>)] unit %s startup", unit.Name)
 				if er := uHandler.Start(); err != nil {
-					log.Printf("[Ctl(Startup<ASYNC>)] unit %s start fail, error: %s", unit.Name, er.Error())
+					Log.Printf("[Ctl(Startup<ASYNC>)] unit %s start fail, error: %s", unit.Name, er.Error())
 				}
 			}()
 		}
