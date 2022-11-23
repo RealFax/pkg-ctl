@@ -1,4 +1,4 @@
-package service
+package example_service
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package units
+package example_units
 
 import (
 	"github.com/RealFax/pkg-ctl"
@@ -6,5 +6,5 @@ import (
 )
 
 func init() {
-	pkgCtl.RegisterHandler(1, "tcp-listener", service.NewTCPListener)
+	pkgCtl.RegisterHandler(1, "tcp-listener", example_service.NewTCPListener)
 }
