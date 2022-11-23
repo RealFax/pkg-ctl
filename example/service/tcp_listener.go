@@ -25,8 +25,10 @@ func (s *service) Start() error {
 		if err != nil {
 			return err
 		}
-		conn.Write([]byte("hello, pkg-ctl"))
-		conn.Close()
+		go func(c net.Conn) {
+			c.Write([]byte("hello, pkg-ctl"))
+			c.Close()
+		}(conn)
 	}
 }
 

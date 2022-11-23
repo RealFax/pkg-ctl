@@ -3,11 +3,51 @@ package pkgCtl
 import (
 	"context"
 	"errors"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
+// ForceExit the ListenAndDestroy func
+func ForceExit() error {
+	if len(closeListener) != 0 {
+		return errors.New("exiting")
+	}
+	closeListener <- struct{}{}
+	return nil
+}
+
+// Exit unregister all services immediately after calling
+//
+// this func can only be called when ListenAndDestroy is used, otherwise an error will be return
+func Exit() error {
+	if cancelFunc == nil {
+		return errors.New("not set cancelFunc")
+	}
+	return Destroy(cancelFunc)
+}
+
+func ExitWithTimeout(d time.Duration) error {
+	err := make(chan error, 1)
+	ticker := time.NewTicker(d)
+	go func() {
+		select {
+		case <-ticker.C:
+			ticker.Stop()
+			log.Println("exit timeout! calling ForceExit")
+			err <- ForceExit()
+		}
+	}()
+	go func() {
+		err <- Exit()
+		ticker.Stop()
+	}()
+	return <-err
+}
+
+// Destroy unregister all services immediately after calling
 func Destroy(cancel context.CancelFunc) (err error) {
 	cancel()
 	for i := 0; i < len(destroys); i++ {
@@ -20,9 +60,11 @@ func Destroy(cancel context.CancelFunc) (err error) {
 		}
 	}
 	Log.Println("all unit are unmount")
+	closeListener <- struct{}{}
 	return
 }
 
+// Startup all registered services in order
 func Startup(ctx *context.Context) error {
 	sortCreates()
 	size := len(creates)
@@ -63,8 +105,13 @@ func Startup(ctx *context.Context) error {
 }
 
 func ListenAndDestroy(cancel context.CancelFunc) error {
+	cancelFunc = cancel
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
-	<-c
-	return Destroy(cancel)
+	select {
+	case <-closeListener:
+		return nil
+	case <-c:
+		return Destroy(cancel)
+	}
 }
