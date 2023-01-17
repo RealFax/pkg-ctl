@@ -6,11 +6,10 @@ import (
 )
 
 var (
-	activeFunc    = func() {}
 	closeListener = make(chan struct{}, 1)
 	cancelFunc    context.CancelFunc
-	creates       = make([]Unit, 0)
-	destroys      = make([]DestroyUnit, 0)
+	units         = make([]Unit, 0)
+	destroyUnits  = make([]DestroyUnit, 0)
 )
 
 var Log *log.Logger

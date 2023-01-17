@@ -11,7 +11,7 @@ import (
 func main() {
 
 	// register services
-	pkgCtl.SetupActive(example_units.Active)
+	pkgCtl.Bootstrap(example_units.Active)
 
 	var (
 		ctx, cancel = context.WithCancel(context.Background())

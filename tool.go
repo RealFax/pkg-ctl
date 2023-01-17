@@ -24,7 +24,7 @@ func ForceExit() error {
 // this func can only be called when ListenAndDestroy is used, otherwise an error will be return
 func Exit() error {
 	if cancelFunc == nil {
-		return errors.New("not set cancelFunc")
+		return errors.New("unset cancelFunc")
 	}
 	return Destroy(cancelFunc)
 }
@@ -50,11 +50,11 @@ func ExitWithTimeout(d time.Duration) error {
 // Destroy unregister all services immediately after calling
 func Destroy(cancel context.CancelFunc) (err error) {
 	cancel()
-	for i := 0; i < len(destroys); i++ {
-		if err = destroys[i].Unit.Destroy(); err != nil {
+	for i := 0; i < len(destroyUnits); i++ {
+		if err = destroyUnits[i].Unit.Destroy(); err != nil {
 			Log.Printf(
 				"unit %s destroy fail, error: %s",
-				destroys[i].Name,
+				destroyUnits[i].Name,
 				err.Error(),
 			)
 		}
@@ -66,8 +66,7 @@ func Destroy(cancel context.CancelFunc) (err error) {
 
 // Startup all registered services in order
 func Startup(ctx *context.Context) error {
-	sortCreates()
-	size := len(creates)
+	size := len(units)
 	if size == 0 {
 		return errors.New("no unit require register")
 	}
@@ -79,7 +78,7 @@ func Startup(ctx *context.Context) error {
 		if len(ec) == 1 {
 			return <-ec
 		}
-		unit := creates[i]
+		unit := units[i]
 		uHandler := unit.Handle(ctx)
 		if err = uHandler.Create(); err != nil {
 			Log.Printf("unit %s create fail, error: %s", unit.Name, err.Error())

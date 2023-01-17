@@ -25,31 +25,27 @@ type DestroyUnit struct {
 }
 
 func registerDestroy(seq int, name string, unit Handler) {
-	destroys = append(destroys, DestroyUnit{
+	destroyUnits = append(destroyUnits, DestroyUnit{
 		Seq:  seq,
 		Name: name,
 		Unit: unit,
 	})
 }
 
-func SetupActive(fn func()) {
-	activeFunc = fn
-}
-
 func RegisterHandler(seq int, name string, handler func(ctx *context.Context) Handler) {
-	creates = append(creates, Unit{
+	units = append(units, Unit{
 		Seq:    seq,
 		Name:   name,
 		Handle: handler,
 	})
 }
 
-func sortCreates() {
-	sort.Slice(creates, func(i, j int) bool {
-		return creates[i].Seq < creates[j].Seq
-	})
-}
-
-func init() {
+func Bootstrap(activeFunc func()) {
+	if activeFunc == nil {
+		panic("===== unset active func =====")
+	}
 	activeFunc()
+	sort.Slice(units, func(i, j int) bool {
+		return units[i].Seq < units[j].Seq
+	})
 }
