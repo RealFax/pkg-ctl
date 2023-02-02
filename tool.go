@@ -65,40 +65,39 @@ func Destroy(cancel context.CancelFunc) (err error) {
 }
 
 // Startup all registered services in order
-func Startup(ctx *context.Context) error {
-	size := len(units)
-	if size == 0 {
+func Startup(rootCtx *context.Context) error {
+	if len(units) == 0 {
 		return errors.New("no unit require register")
 	}
 	var (
-		ec  = make(chan error, 1)
-		err error
+		errorChan = make(chan error, 1)
+		err       error
 	)
-	for i := 0; i < size; i++ {
-		if len(ec) == 1 {
-			return <-ec
+	for _, unit := range units {
+		if len(errorChan) == 1 {
+			return <-errorChan
 		}
-		unit := units[i]
-		uHandler := unit.Handle(ctx)
-		if err = uHandler.Create(); err != nil {
+		handler := unit.Handle(rootCtx)
+		if err = handler.Create(); err != nil {
 			Log.Printf("unit %s create fail, error: %s", unit.Name, err.Error())
 			return err
 		}
-		registerDestroy(unit.Seq, unit.Name, uHandler)
-		if !uHandler.IsAsync() {
-			if err = uHandler.Start(); err != nil {
-				Log.Printf("unit %s start fail, error: %s", unit.Name, err.Error())
-				return err
-			}
-			Log.Printf("unit %s startup", unit.Name)
-		} else {
+		registerDestroy(unit.Seq, unit.Name, handler)
+		if handler.IsAsync() {
 			go func() {
 				Log.Printf("[Ctl(Startup<ASYNC>)] unit %s startup", unit.Name)
-				if er := uHandler.Start(); err != nil {
-					Log.Printf("[Ctl(Startup<ASYNC>)] unit %s start fail, error: %s", unit.Name, er.Error())
+				if hErr := handler.Start(); hErr != nil {
+					Log.Printf("[Ctl(Startup<ASYNC>)] unit %s start fail, error: %s", unit.Name, hErr.Error())
+					return
 				}
 			}()
+			continue
 		}
+		if err = handler.Start(); err != nil {
+			Log.Printf("unit %s start fail, error: %s", unit.Name, err.Error())
+			return err
+		}
+		Log.Printf("unit %s startup", unit.Name)
 	}
 	return nil
 }
