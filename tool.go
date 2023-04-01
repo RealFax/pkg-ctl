@@ -195,6 +195,7 @@ func (r *Root) Startup() error {
 					return
 				}
 			}()
+			continue
 		}
 
 		if err = handle.Start(); err != nil {
