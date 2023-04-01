@@ -6,10 +6,12 @@ import (
 )
 
 var (
+	// Deprecated
 	closeListener = make(chan struct{}, 1)
-	cancelFunc    context.CancelFunc
-	units         = make([]Unit, 0)
-	destroyUnits  = make([]DestroyUnit, 0)
+	// Deprecated
+	cancelFunc   context.CancelFunc
+	units        = make([]Unit, 0)
+	destroyUnits = make([]DestroyUnit, 0)
 )
 
 var Log *log.Logger

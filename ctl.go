@@ -9,7 +9,7 @@ type Handler interface {
 	Create() error
 	Start() error
 	Destroy() error
-	IsAsync() bool
+	Async() bool
 }
 
 type Unit struct {
@@ -24,6 +24,7 @@ type DestroyUnit struct {
 	Unit Handler
 }
 
+// Deprecated
 func registerDestroy(seq int, name string, unit Handler) {
 	destroyUnits = append(destroyUnits, DestroyUnit{
 		Seq:  seq,
