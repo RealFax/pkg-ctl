@@ -153,14 +153,14 @@ func (r *Root) Exit() error {
 }
 
 func (r *Root) Destroy() error {
-	r.Stop()
 	var err error
-	for _, unit := range destroyUnits {
+	for _, unit := range r.destroyUnits {
 		if err = unit.Unit.Destroy(); err != nil {
 			Log.Printf("unit %s destroy fail, error: %s", unit.Name, err.Error())
 			return err
 		}
 	}
+	r.Stop()
 	Log.Println("all unit are unmount")
 	return nil
 }
