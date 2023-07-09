@@ -94,7 +94,7 @@ func (r *Root) Startup() error {
 			r.logger.Error(fmt.Sprintf("unit %s start fail, error: %s", unit.Name, err.Error()))
 			return err
 		}
-		r.logger.Info("unit %s startup", unit.Name)
+		r.logger.Info(fmt.Sprintf("unit %s startup", unit.Name))
 	}
 
 	return nil
