@@ -12,10 +12,12 @@ type Handler interface {
 	Async() bool
 }
 
+type HandlerFunc func(*context.Context) Handler
+
 type Unit struct {
 	Seq    int
 	Name   string
-	Handle func(ctx *context.Context) Handler
+	Handle HandlerFunc
 }
 
 type DestroyUnit struct {
@@ -24,16 +26,7 @@ type DestroyUnit struct {
 	Unit Handler
 }
 
-// Deprecated
-func registerDestroy(seq int, name string, unit Handler) {
-	destroyUnits = append(destroyUnits, DestroyUnit{
-		Seq:  seq,
-		Name: name,
-		Unit: unit,
-	})
-}
-
-func RegisterHandler(seq int, name string, handler func(ctx *context.Context) Handler) {
+func RegisterHandler(seq int, name string, handler HandlerFunc) {
 	units = append(units, Unit{
 		Seq:    seq,
 		Name:   name,

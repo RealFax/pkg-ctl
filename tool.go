@@ -3,135 +3,18 @@ package pkgCtl
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
-	"time"
 )
-
-// ForceExit the ListenAndDestroy func
-//
-// Deprecated
-func ForceExit() error {
-	if len(closeListener) != 0 {
-		return errors.New("exiting")
-	}
-	closeListener <- struct{}{}
-	return nil
-}
-
-// Exit unregister all services immediately after calling
-//
-// this func can only be called when ListenAndDestroy is used, otherwise an error will be return
-//
-// Deprecated
-func Exit() error {
-	if cancelFunc == nil {
-		return errors.New("unset cancelFunc")
-	}
-	return Destroy(cancelFunc)
-}
-
-// ExitWithTimeout
-//
-// Deprecated
-func ExitWithTimeout(d time.Duration) error {
-	err := make(chan error, 1)
-	ticker := time.NewTicker(d)
-	go func() {
-		select {
-		case <-ticker.C:
-			ticker.Stop()
-			log.Println("exit timeout! calling ForceExit")
-			err <- ForceExit()
-		}
-	}()
-	go func() {
-		err <- Exit()
-		ticker.Stop()
-	}()
-	return <-err
-}
-
-// Destroy unregister all services immediately after calling
-//
-// Deprecated
-func Destroy(cancel context.CancelFunc) (err error) {
-	cancel()
-	for i := 0; i < len(destroyUnits); i++ {
-		if err = destroyUnits[i].Unit.Destroy(); err != nil {
-			Log.Printf(
-				"unit %s destroy fail, error: %s",
-				destroyUnits[i].Name,
-				err.Error(),
-			)
-		}
-	}
-	Log.Println("all unit are unmount")
-	closeListener <- struct{}{}
-	return
-}
-
-// Startup all registered services in order
-//
-// Deprecated
-func Startup(rootCtx *context.Context) error {
-	if len(units) == 0 {
-		return errors.New("no unit require register")
-	}
-	var (
-		errorChan = make(chan error, 1)
-		err       error
-	)
-	for _, unit := range units {
-		if len(errorChan) == 1 {
-			return <-errorChan
-		}
-		handler := unit.Handle(rootCtx)
-		if err = handler.Create(); err != nil {
-			Log.Printf("unit %s create fail, error: %s", unit.Name, err.Error())
-			return err
-		}
-		registerDestroy(unit.Seq, unit.Name, handler)
-		if handler.Async() {
-			go func() {
-				Log.Printf("[Ctl(Startup<ASYNC>)] unit %s startup", unit.Name)
-				if hErr := handler.Start(); hErr != nil {
-					Log.Printf("[Ctl(Startup<ASYNC>)] unit %s start fail, error: %s", unit.Name, hErr.Error())
-					return
-				}
-			}()
-			continue
-		}
-		if err = handler.Start(); err != nil {
-			Log.Printf("unit %s start fail, error: %s", unit.Name, err.Error())
-			return err
-		}
-		Log.Printf("unit %s startup", unit.Name)
-	}
-	return nil
-}
-
-// ListenAndDestroy
-//
-// Deprecated
-func ListenAndDestroy(cancel context.CancelFunc) error {
-	cancelFunc = cancel
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
-	select {
-	case <-closeListener:
-		return nil
-	case <-c:
-		return Destroy(cancel)
-	}
-}
 
 type Root struct {
 	Context    context.Context
 	CancelFunc context.CancelFunc
 
+	logger       Logger
 	destroyUnits []DestroyUnit
 	closeSignal  chan struct{}
 }
@@ -140,6 +23,7 @@ func (r *Root) Stop() {
 	if r.CancelFunc == nil {
 		return
 	}
+	r.logger.Info("context cancel signal")
 	r.CancelFunc()
 }
 
@@ -153,15 +37,19 @@ func (r *Root) Exit() error {
 }
 
 func (r *Root) Destroy() error {
+	r.logger.Debug("starting destroy unit")
+	sort.Slice(r.destroyUnits, func(i, j int) bool {
+		return r.destroyUnits[i].Seq > r.destroyUnits[j].Seq
+	})
 	var err error
 	for _, unit := range r.destroyUnits {
 		if err = unit.Unit.Destroy(); err != nil {
-			Log.Printf("unit %s destroy fail, error: %s", unit.Name, err.Error())
+			r.logger.Error(fmt.Sprintf("unit %s destroy fail, error: %s", unit.Name, err.Error()))
 			return err
 		}
 	}
 	r.Stop()
-	Log.Println("all unit are unmount")
+	r.logger.Info("all unit are unmount")
 	return nil
 }
 
@@ -177,7 +65,7 @@ func (r *Root) Startup() error {
 	for _, unit := range units {
 		handle := unit.Handle(&r.Context)
 		if err = handle.Create(); err != nil {
-			Log.Printf("unit %s create fail, error: %s", unit.Name, err.Error())
+			r.logger.Error(fmt.Sprintf("unit %s create fail, error: %s", unit.Name, err.Error()))
 			return err
 		}
 
@@ -189,9 +77,13 @@ func (r *Root) Startup() error {
 
 		if handle.Async() {
 			go func() {
-				Log.Printf("[Ctl(Startup<ASYNC>)] unit %s startup", unit.Name)
+				r.logger.Info(fmt.Sprintf("[Ctl(Startup<ASYNC>)] unit %s startup", unit.Name))
 				if aErr := handle.Start(); aErr != nil {
-					Log.Printf("[Ctl(Startup<ASYNC>)] unit %s start fail, error: %s", unit.Name, aErr.Error())
+					r.logger.Error(fmt.Sprintf(
+						"[Ctl(Startup<ASYNC>)] unit %s start fail, error: %s",
+						unit.Name,
+						aErr.Error(),
+					))
 					return
 				}
 			}()
@@ -199,10 +91,10 @@ func (r *Root) Startup() error {
 		}
 
 		if err = handle.Start(); err != nil {
-			Log.Printf("unit %s start fail, error: %s", unit.Name, err.Error())
+			r.logger.Error(fmt.Sprintf("unit %s start fail, error: %s", unit.Name, err.Error()))
 			return err
 		}
-		Log.Printf("unit %s startup", unit.Name)
+		r.logger.Info("unit %s startup", unit.Name)
 	}
 
 	return nil
@@ -219,12 +111,13 @@ func (r *Root) ListenAndDestroy() error {
 	}
 }
 
-func New(ctx context.Context) *Root {
+func New(ctx context.Context, logger Logger) *Root {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	root := &Root{
+		logger:       logger,
 		destroyUnits: make([]DestroyUnit, 0),
 		closeSignal:  make(chan struct{}, 1),
 	}
