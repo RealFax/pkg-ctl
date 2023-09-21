@@ -43,3 +43,8 @@ func Bootstrap(activeFunc func()) {
 		return units[i].Seq < units[j].Seq
 	})
 }
+
+func Self(ctx context.Context) (*Root, bool) {
+	val, ok := ctx.Value("___PKG_CTL___").(*Root)
+	return val, ok
+}
