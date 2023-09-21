@@ -76,12 +76,13 @@ func (r *Root) Startup() error {
 		})
 
 		if handle.Async() {
+			ext := unit
 			go func() {
-				r.logger.Info(fmt.Sprintf("[Ctl(Startup<ASYNC>)] unit %s startup", unit.Name))
+				r.logger.Info(fmt.Sprintf("[Ctl(Startup<ASYNC>)] unit %s startup", ext.Name))
 				if aErr := handle.Start(); aErr != nil {
 					r.logger.Error(fmt.Sprintf(
 						"[Ctl(Startup<ASYNC>)] unit %s start fail, error: %s",
-						unit.Name,
+						ext.Name,
 						aErr.Error(),
 					))
 					return
@@ -114,6 +115,10 @@ func (r *Root) ListenAndDestroy() error {
 func New(ctx context.Context, logger Logger) *Root {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+
+	if logger == nil {
+		logger = DefaultLogger
 	}
 
 	root := &Root{
