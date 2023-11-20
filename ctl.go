@@ -12,7 +12,7 @@ type Handler interface {
 	Async() bool
 }
 
-type HandlerFunc func(*context.Context) Handler
+type HandlerFunc func(*Context) Handler
 
 type Unit struct {
 	Seq    int
@@ -44,7 +44,7 @@ func Bootstrap(activeFunc func()) {
 	})
 }
 
-func Self(ctx context.Context) (*Root, bool) {
-	val, ok := ctx.Value("___PKG_CTL___").(*Root)
+func Self(ctx context.Context) (*Context, bool) {
+	val, ok := ctx.Value("___PKG_CTL___").(*Context)
 	return val, ok
 }

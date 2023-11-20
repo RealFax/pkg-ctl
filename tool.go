@@ -7,54 +7,77 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"sync"
 	"syscall"
 )
 
-type Root struct {
-	Context    context.Context
+type Context struct {
+	context.Context
 	CancelFunc context.CancelFunc
 
 	logger       Logger
 	destroyUnits []DestroyUnit
 	closeSignal  chan struct{}
+
+	mu  sync.RWMutex
+	env map[string]any
 }
 
-func (r *Root) Stop() {
-	if r.CancelFunc == nil {
+func (c *Context) Set(key string, value any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.env[key] = value
+}
+
+func (c *Context) Del(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.env, key)
+}
+
+func (c *Context) Get(key string) (any, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	val, found := c.env[key]
+	return val, found
+}
+
+func (c *Context) Stop() {
+	if c.CancelFunc == nil {
 		return
 	}
-	r.logger.Info("context cancel signal")
-	r.CancelFunc()
+	c.logger.Info("context cancel signal")
+	c.CancelFunc()
 }
 
-func (r *Root) Exit() error {
-	r.Stop()
-	if len(r.closeSignal) != 0 {
+func (c *Context) Exit() error {
+	c.Stop()
+	if len(c.closeSignal) != 0 {
 		return errors.New("exiting")
 	}
-	r.closeSignal <- struct{}{}
+	c.closeSignal <- struct{}{}
 	return nil
 }
 
-func (r *Root) Destroy() error {
-	r.logger.Debug("starting destroy unit")
-	sort.Slice(r.destroyUnits, func(i, j int) bool {
-		return r.destroyUnits[i].Seq > r.destroyUnits[j].Seq
+func (c *Context) Destroy() error {
+	c.logger.Debug("starting destroy unit")
+	sort.Slice(c.destroyUnits, func(i, j int) bool {
+		return c.destroyUnits[i].Seq > c.destroyUnits[j].Seq
 	})
 	var err error
-	for _, unit := range r.destroyUnits {
+	for _, unit := range c.destroyUnits {
 		if err = unit.Unit.Destroy(); err != nil {
-			r.logger.Error(fmt.Sprintf("unit %s destroy fail, error: %s", unit.Name, err.Error()))
+			c.logger.Error(fmt.Sprintf("unit %s destroy fail, error: %s", unit.Name, err.Error()))
 			return err
 		}
 	}
-	r.Stop()
-	r.logger.Info("all unit are unmount")
+	c.Stop()
+	c.logger.Info("all unit are unmount")
 	return nil
 }
 
-func (r *Root) Startup() error {
-	if r.closeSignal == nil {
+func (c *Context) Startup() error {
+	if c.closeSignal == nil {
 		return errors.New("unable to start pkg-ctl which has exited")
 	}
 	if len(units) == 0 {
@@ -63,13 +86,13 @@ func (r *Root) Startup() error {
 
 	var err error
 	for _, unit := range units {
-		handle := unit.Handle(&r.Context)
+		handle := unit.Handle(c)
 		if err = handle.Create(); err != nil {
-			r.logger.Error(fmt.Sprintf("unit %s create fail, error: %s", unit.Name, err.Error()))
+			c.logger.Error(fmt.Sprintf("unit %s create fail, error: %s", unit.Name, err.Error()))
 			return err
 		}
 
-		r.destroyUnits = append(r.destroyUnits, DestroyUnit{
+		c.destroyUnits = append(c.destroyUnits, DestroyUnit{
 			Seq:  unit.Seq,
 			Name: unit.Name,
 			Unit: handle,
@@ -78,9 +101,9 @@ func (r *Root) Startup() error {
 		if handle.Async() {
 			ext := unit
 			go func() {
-				r.logger.Info(fmt.Sprintf("[Ctl(Startup<ASYNC>)] unit %s startup", ext.Name))
+				c.logger.Info(fmt.Sprintf("[Ctl(Startup<ASYNC>)] unit %s startup", ext.Name))
 				if aErr := handle.Start(); aErr != nil {
-					r.logger.Error(fmt.Sprintf(
+					c.logger.Error(fmt.Sprintf(
 						"[Ctl(Startup<ASYNC>)] unit %s start fail, error: %s",
 						ext.Name,
 						aErr.Error(),
@@ -92,44 +115,44 @@ func (r *Root) Startup() error {
 		}
 
 		if err = handle.Start(); err != nil {
-			r.logger.Error(fmt.Sprintf("unit %s start fail, error: %s", unit.Name, err.Error()))
+			c.logger.Error(fmt.Sprintf("unit %s start fail, error: %s", unit.Name, err.Error()))
 			return err
 		}
-		r.logger.Info(fmt.Sprintf("unit %s startup", unit.Name))
+		c.logger.Info(fmt.Sprintf("unit %s startup", unit.Name))
 	}
 
 	return nil
 }
 
-func (r *Root) ListenAndDestroy() error {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
+func (c *Context) ListenAndDestroy() error {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	select {
-	case <-r.closeSignal:
+	case <-c.closeSignal:
 		return nil
-	case <-c:
-		return r.Destroy()
+	case <-sig:
+		return c.Destroy()
 	}
 }
 
-func New(ctx context.Context, logger Logger) *Root {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
+func New(logger Logger) *Context {
 	if logger == nil {
 		logger = DefaultLogger
 	}
 
-	root := &Root{
+	root := &Context{
 		logger:       logger,
 		destroyUnits: make([]DestroyUnit, 0),
 		closeSignal:  make(chan struct{}, 1),
+		env:          make(map[string]any),
 	}
 
-	ctx = context.WithValue(ctx, "___PKG_CTL___", root)
-
-	root.Context, root.CancelFunc = context.WithCancel(ctx)
+	root.Context, root.CancelFunc = context.WithCancel(context.Background())
 
 	return root
+}
+
+func Use(ctx context.Context) (*Context, bool) {
+	c, ok := ctx.(*Context)
+	return c, ok
 }
