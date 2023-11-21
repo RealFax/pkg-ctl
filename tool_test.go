@@ -23,3 +23,22 @@ func ExampleRegisterHandler() {
 		return nil
 	})
 }
+
+func ExampleUseValue() {
+	c, ok := pkgCtl.Use(ctx)
+	if !ok {
+		return
+	}
+
+	c.Set("K", "V")
+
+	catch, ok := pkgCtl.UseValue[string](c, "K")
+	if !ok {
+		return
+	}
+
+	if catch != "V" {
+		// fail
+	}
+	// success
+}

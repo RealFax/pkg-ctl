@@ -156,3 +156,14 @@ func Use(ctx context.Context) (*Context, bool) {
 	c, ok := ctx.(*Context)
 	return c, ok
 }
+
+func UseValue[T any](ctx *Context, key string) (T, bool) {
+	val, found := ctx.Get(key)
+	if !found {
+		var zero T
+		return zero, false
+	}
+
+	av, ok := val.(T)
+	return av, ok
+}
