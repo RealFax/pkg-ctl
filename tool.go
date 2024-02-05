@@ -3,7 +3,7 @@ package pkgCtl
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"sort"
@@ -11,34 +11,41 @@ import (
 	"syscall"
 )
 
+type Logger interface {
+	Debug(msg string, v ...any)
+	Info(msg string, v ...any)
+	Warn(msg string, v ...any)
+	Error(msg string, v ...any)
+}
+
 type Context struct {
 	context.Context
 	CancelFunc context.CancelFunc
 
-	logger       Logger
-	destroyUnits []DestroyUnit
-	closeSignal  chan struct{}
+	logger  Logger
+	units   []DUnit
+	csignal chan struct{}
 
-	mu  sync.RWMutex
-	env map[string]any
+	mu     sync.RWMutex
+	values map[string]any
 }
 
 func (c *Context) Set(key string, value any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.env[key] = value
+	c.values[key] = value
 }
 
 func (c *Context) Del(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.env, key)
+	delete(c.values, key)
 }
 
 func (c *Context) Get(key string) (any, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	val, found := c.env[key]
+	val, found := c.values[key]
 	return val, found
 }
 
@@ -46,53 +53,58 @@ func (c *Context) Stop() {
 	if c.CancelFunc == nil {
 		return
 	}
-	c.logger.Info("context cancel signal")
+	c.logger.Warn("context cancel signal")
 	c.CancelFunc()
 }
 
 func (c *Context) Exit() error {
 	c.Stop()
-	if len(c.closeSignal) != 0 {
+	if len(c.csignal) != 0 {
 		return errors.New("exiting")
 	}
-	c.closeSignal <- struct{}{}
+	c.csignal <- struct{}{}
 	return nil
 }
 
 func (c *Context) Destroy() error {
-	c.logger.Debug("starting destroy unit")
-	sort.Slice(c.destroyUnits, func(i, j int) bool {
-		return c.destroyUnits[i].Seq > c.destroyUnits[j].Seq
+	c.logger.Debug("starting destroy unit", slog.Int("unit_count", len(c.units)))
+
+	sort.Slice(c.units, func(i, j int) bool {
+		return c.units[i].Seq > c.units[j].Seq
 	})
+
 	var err error
-	for _, unit := range c.destroyUnits {
+	for _, unit := range c.units {
 		if err = unit.Unit.Destroy(); err != nil {
-			c.logger.Error(fmt.Sprintf("unit %s destroy fail, error: %s", unit.Name, err.Error()))
+			c.logger.Error("unit destroy fail", slog.String("unit", unit.Name), slog.String("error", err.Error()))
 			return err
 		}
 	}
+
 	c.Stop()
 	c.logger.Info("all unit are unmount")
 	return nil
 }
 
 func (c *Context) Startup() error {
-	if c.closeSignal == nil {
+	if c.csignal == nil {
 		return errors.New("unable to start pkg-ctl which has exited")
 	}
 	if len(units) == 0 {
 		return errors.New("no unit require startup")
 	}
 
+	c.logger.Debug("starting startup unit", slog.Int("unit_count", len(units)))
+
 	var err error
 	for _, unit := range units {
 		handle := unit.Handle(c)
 		if err = handle.Create(); err != nil {
-			c.logger.Error(fmt.Sprintf("unit %s create fail, error: %s", unit.Name, err.Error()))
+			c.logger.Error("unit create fail", slog.String("unit", unit.Name), slog.String("error", err.Error()))
 			return err
 		}
 
-		c.destroyUnits = append(c.destroyUnits, DestroyUnit{
+		c.units = append(c.units, DUnit{
 			Seq:  unit.Seq,
 			Name: unit.Name,
 			Unit: handle,
@@ -101,13 +113,9 @@ func (c *Context) Startup() error {
 		if handle.Async() {
 			ext := unit
 			go func() {
-				c.logger.Info(fmt.Sprintf("[Ctl(Startup<ASYNC>)] unit %s startup", ext.Name))
+				c.logger.Info("<Async> startup", slog.String("unit", ext.Name))
 				if aErr := handle.Start(); aErr != nil {
-					c.logger.Error(fmt.Sprintf(
-						"[Ctl(Startup<ASYNC>)] unit %s start fail, error: %s",
-						ext.Name,
-						aErr.Error(),
-					))
+					c.logger.Error("<Async> startup fail", slog.String("unit", ext.Name), slog.String("error", err.Error()))
 					return
 				}
 			}()
@@ -115,10 +123,10 @@ func (c *Context) Startup() error {
 		}
 
 		if err = handle.Start(); err != nil {
-			c.logger.Error(fmt.Sprintf("unit %s start fail, error: %s", unit.Name, err.Error()))
+			c.logger.Error("startup fail", slog.String("unit", unit.Name), slog.String("error", err.Error()))
 			return err
 		}
-		c.logger.Info(fmt.Sprintf("unit %s startup", unit.Name))
+		c.logger.Info("startup", slog.String("unit", unit.Name))
 	}
 
 	return nil
@@ -128,23 +136,25 @@ func (c *Context) ListenAndDestroy() error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	select {
-	case <-c.closeSignal:
+	case <-c.csignal:
 		return nil
 	case <-sig:
 		return c.Destroy()
 	}
 }
 
-func New(logger Logger) *Context {
-	if logger == nil {
-		logger = DefaultLogger
+func New(opts ...Option) *Context {
+	root := &Context{
+		logger:  slog.Default(),
+		units:   make([]DUnit, 0),
+		csignal: make(chan struct{}, 1),
+		values:  make(map[string]any),
 	}
 
-	root := &Context{
-		logger:       logger,
-		destroyUnits: make([]DestroyUnit, 0),
-		closeSignal:  make(chan struct{}, 1),
-		env:          make(map[string]any),
+	for _, opt := range opts {
+		if opt != nil {
+			opt(root)
+		}
 	}
 
 	root.Context, root.CancelFunc = context.WithCancel(context.Background())

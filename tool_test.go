@@ -4,7 +4,7 @@ import (
 	pkgCtl "github.com/RealFax/pkg-ctl"
 )
 
-var ctx = pkgCtl.New(nil)
+var ctx = pkgCtl.New()
 
 func ExampleUse() {
 	c, ok := pkgCtl.Use(ctx)
@@ -18,9 +18,14 @@ func ExampleUse() {
 }
 
 func ExampleRegisterHandler() {
-	pkgCtl.RegisterHandler(-1, "test-loader", func(c *pkgCtl.Context) pkgCtl.Handler {
+	type handler struct {
+		ctx *pkgCtl.Context
+		pkgCtl.UnimplementedHandler
+	}
+
+	pkgCtl.Register(-1, "test-loader", func(c *pkgCtl.Context) pkgCtl.Handler {
 		c.Set("ctx1", false)
-		return nil
+		return &handler{ctx: c}
 	})
 }
 
